@@ -370,46 +370,58 @@ function Kai({ exp, pose }: { exp: Expression; pose: Pose }) {
 /* ───────────── Sumi (ink-fish scout) ───────────── */
 
 function Sumi({ exp }: { exp: Expression }) {
-  const eye = (cx: number) => {
-    if (exp === "happy" || exp === "excited") return <path d={`M${cx - 7} 124 Q${cx} 112 ${cx + 7} 124`} stroke={W} strokeWidth={4} fill="none" strokeLinecap="round" />;
-    if (exp === "serious" || exp === "smug") return <path d={`M${cx - 7} 120 L${cx + 7} 118`} stroke={W} strokeWidth={4} strokeLinecap="round" />;
-    const r = exp === "surprised" ? 11 : 9;
-    const look = exp === "thinking" ? -3 : 0;
-    return (
-      <g>
-        <circle cx={cx} cy={120} r={r} fill={W} />
-        <circle cx={cx + 2} cy={121 + look} r={exp === "surprised" ? 3 : 5} fill={INK} />
-        <circle cx={cx + 3.5} cy={118 + look} r={1.6} fill={W} />
-      </g>
-    );
+  // Same geometry as the page-mascot sprite sheets (scripts/build-mascot.mjs), scaled into this
+  // viewBox, so Sumi looks identical in panels, loaders and the opening.
+  const bx = 180;
+  const by = 196;
+  const look: Record<Expression, [number, number]> = {
+    neutral: [0, 0], happy: [0, 0], excited: [0, 0], surprised: [0, 0], thinking: [10, -12],
+    confused: [-8, 6], serious: [0, 4], smug: [8, 0], worried: [-4, 12],
   };
+  const [px, py] = look[exp];
+  const eyes: [number, number][] = [[bx - 40, by - 4], [bx + 40, by - 4]];
+  const open = ([x, y]: [number, number], big = false, small = false) => (
+    <g key={x}>
+      <ellipse cx={x} cy={y} rx={big ? 36 : 31} ry={big ? 42 : 37} fill={W} />
+      <circle cx={x + px} cy={y + py} r={small ? 9 : 19} fill={INK} />
+      {!small && <circle cx={x + px - 6} cy={y + py - 8} r={6.5} fill={W} />}
+    </g>
+  );
+  const closed = ([x, y]: [number, number]) => <path key={x} d={`M${x - 24} ${y + 8} Q${x} ${y - 22} ${x + 24} ${y + 8}`} stroke={W} strokeWidth={9} fill="none" strokeLinecap="round" />;
+  const flat = ([x, y]: [number, number]) => <path key={x} d={`M${x - 24} ${y + 2} L${x + 24} ${y - 2}`} stroke={W} strokeWidth={9} strokeLinecap="round" />;
+  const eyeArt =
+    exp === "happy" ? eyes.map(closed)
+    : exp === "excited" ? eyes.map((e) => open(e, true))
+    : exp === "surprised" ? eyes.map((e) => open(e, true, true))
+    : exp === "serious" ? eyes.map(flat)
+    : exp === "smug" ? [closed(eyes[0]), open(eyes[1])]
+    : eyes.map((e) => open(e));
+  const my = by + 58;
+  const mouth =
+    exp === "happy" || exp === "excited" ? <path d={`M${bx - 22} ${my - 4} Q${bx} ${my + 30} ${bx + 22} ${my - 4} Z`} fill={W} />
+    : exp === "surprised" ? <ellipse cx={bx} cy={my + 4} rx={10} ry={13} fill={W} />
+    : exp === "confused" || exp === "worried" ? <path d={`M${bx - 18} ${my + 4} q6 -8 12 0 t12 0 t12 0`} stroke={W} strokeWidth={5} fill="none" strokeLinecap="round" />
+    : <path d={`M${bx - 14} ${my} Q${bx} ${my + 14} ${bx + 14} ${my}`} stroke={W} strokeWidth={6} fill="none" strokeLinecap="round" />;
   return (
-    <g className="bob">
-      {/* tail */}
-      <path d="M150 140 L186 112 C182 130 182 150 186 168 Z" fill={INK} {...S} />
-      {/* fins */}
-      <path d="M92 96 C96 72 116 66 130 74 C120 80 112 90 108 100 Z" fill={INK} {...S} />
-      <path d="M100 170 C104 186 118 192 128 186 C118 180 114 172 114 166 Z" fill={INK} {...S} />
-      {/* body */}
-      <path d="M40 140 C40 108 74 92 110 96 C140 100 160 120 158 142 C156 166 132 182 100 182 C66 182 40 168 40 140 Z" fill={INK} {...S} />
-      <path d="M58 128 C66 112 82 106 98 106" stroke={W} strokeWidth={3} fill="none" strokeLinecap="round" opacity={0.85} />
-      {eye(72)}
-      {eye(102)}
-      {exp === "excited" || exp === "happy" ? (
-        <path d="M80 144 Q88 154 96 144" stroke={W} strokeWidth={3} fill="none" strokeLinecap="round" />
-      ) : exp === "surprised" ? (
-        <ellipse cx={88} cy={148} rx={4} ry={5} fill={W} />
-      ) : (
-        <path d="M82 146 Q88 150 94 146" stroke={W} strokeWidth={3} fill="none" strokeLinecap="round" />
-      )}
-      {/* ink droplet trail */}
-      <path d="M30 128 q6 8 0 12 q-6 -4 0 -12 Z M20 150 q4 6 0 9 q-4 -3 0 -9 Z" fill={INK} />
-      {exp === "excited" && <path d="M160 82 l3 8 8 3 -8 3 -3 8 -3 -8 -8 -3 8 -3 Z" fill={INK} />}
-      {(exp === "confused" || exp === "worried") && (
-        <text x="150" y="96" fontFamily="var(--font-display)" fontSize="28" fill={INK}>
-          ?
-        </text>
-      )}
+    <g transform="translate(-8 26) scale(0.62)">
+      <g className="bob">
+        <path d={`M${bx + 92} ${by + 6} C${bx + 128} ${by - 40} ${bx + 150} ${by - 44} ${bx + 156} ${by - 26} C${bx + 140} ${by - 6} ${bx + 140} ${by + 18} ${bx + 156} ${by + 40} C${bx + 146} ${by + 56} ${bx + 122} ${by + 50} ${bx + 92} ${by + 18} Z`} fill={INK} />
+        <path d={`M${bx - 30} ${by - 88} C${bx - 18} ${by - 132} ${bx + 26} ${by - 140} ${bx + 46} ${by - 112} C${bx + 26} ${by - 108} ${bx + 14} ${by - 98} ${bx + 10} ${by - 86} Z`} fill={INK} />
+        <path d={`M${bx - 100} ${by + 22} C${bx - 132} ${by + 18} ${bx - 140} ${by + 44} ${bx - 128} ${by + 62} C${bx - 116} ${by + 50} ${bx - 104} ${by + 46} ${bx - 92} ${by + 46} Z`} fill={INK} />
+        <path d={`M${bx - 108} ${by + 4} C${bx - 108} ${by - 64} ${bx - 56} ${by - 96} ${bx} ${by - 96} C${bx + 62} ${by - 96} ${bx + 108} ${by - 58} ${bx + 108} ${by + 6} C${bx + 108} ${by + 70} ${bx + 60} ${by + 104} ${bx} ${by + 104} C${bx - 62} ${by + 104} ${bx - 108} ${by + 68} ${bx - 108} ${by + 4} Z`} fill={INK} />
+        <path d={`M${bx - 78} ${by - 30} C${bx - 70} ${by - 60} ${bx - 46} ${by - 76} ${bx - 18} ${by - 80}`} stroke={W} strokeWidth={7} fill="none" strokeLinecap="round" />
+        {eyeArt}
+        {mouth}
+        {(exp === "happy" || exp === "excited") && (
+          <g stroke={W} strokeWidth={4} strokeLinecap="round">
+            {[0, 10, 20].map((d) => <path key={d} d={`M${bx - 86 + d} ${by + 38} l-5 10 M${bx + 66 + d} ${by + 38} l-5 10`} />)}
+          </g>
+        )}
+        {exp === "excited" && <path d={`M${bx + 128} ${by - 120} l5 14 14 5 -14 5 -5 14 -5 -14 -14 -5 14 -5 Z`} fill={INK} />}
+        {(exp === "confused" || exp === "worried") && (
+          <text x={bx + 112} y={by - 96} fontFamily="var(--font-display)" fontSize="48" fill={INK}>?</text>
+        )}
+      </g>
     </g>
   );
 }

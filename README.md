@@ -32,8 +32,17 @@ src/components/manga/  renderer (independent of the pipeline)
   layout.ts          page templates with slanted gutters, chosen per page from panel weight + content
   lettering.tsx      speech / thought / shout / whisper bubbles, analogy tags, citation chips, glossary terms
   diagrams.tsx       interactive flow, layers, compare, steps, bars, cycle, network, equation, sequence
+src/components/mascot/Sumi.tsx   Sumi the ink-fish: page-mascot (cursor-tracking, pokeable) for interactive
+                     spots; scripted loops over the same sprite sheets for loading states
+src/components/opening/          first-visit title card (skippable, remembered, sound off by default)
+src/components/ui/motion.tsx     Reveal / Ribbon / Episode — shared, reduced-motion-aware motion
+scripts/build-mascot.mjs         renders Sumi's 3×3 sprite sheets into public/mascots (node scripts/build-mascot.mjs)
 src/app/             landing, /search, /paper/[id], /read/[id], /library, API routes
 ```
+
+**Flow.** Open → Discover (`/search`, live TinyFish progress streamed from `/api/search?stream=1`) →
+Paper (`/paper/[id]`, one action) → Read (`/read/[id]` prepares the manga in place, then opens chapter one).
+Replay the opening with `/?intro=1`.
 
 **Grounding rules.** Research statements cite claim IDs; each claim shows its verbatim excerpt and a
 verified/unverified stamp. Analogies are visibly marked. Full text never leaves the server — the client

@@ -188,7 +188,14 @@ async function enrichFromArxiv(papers: Paper[]) {
 const decodeXml = (s: string) =>
   s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
-export async function discover(rawQuery: string, opts: { fresh?: boolean } = {}): Promise<SearchResponse> {
+/** Real progress from the discovery run, streamed to the search page as it happens. */
+export type DiscoverEvent =
+  | { type: "start"; sources: string[] }
+  | { type: "source"; label: string; ok: boolean; count: number; error?: string }
+  | { type: "stage"; text: string };
+
+export async function discover(rawQuery: string, opts: { fresh?: boolean; onEvent?: (e: DiscoverEvent) => void } = {}): Promise<SearchResponse> {
+  const emit = opts.onEvent ?? (() => {});
   const query = rawQuery.trim().replace(/\s+/g, " ").slice(0, 200);
   const queryKey = query.toLowerCase();
 
@@ -221,24 +228,28 @@ export async function discover(rawQuery: string, opts: { fresh?: boolean } = {})
     },
   ];
 
-  const settled = await Promise.allSettled(calls.map((c) => c.run()));
-  const sources: SearchResponse["sources"] = [];
+  emit({ type: "start", sources: calls.map((c) => c.label) });
+  const sources: SearchResponse["sources"] = calls.map((c) => ({ label: c.label, ok: false, count: 0 }));
   const all: Paper[] = [];
-  settled.forEach((s, i) => {
-    const c = calls[i];
-    if (s.status === "fulfilled") {
-      const mapped = s.value.map((r) => c.map(r, c.via)).filter((p): p is Paper => !!p);
-      sources.push({ label: c.label, ok: true, count: mapped.length });
-      all.push(...mapped);
-    } else {
-      sources.push({ label: c.label, ok: false, count: 0, error: String(s.reason?.message ?? s.reason).slice(0, 200) });
-    }
-  });
+  // Each source reports the moment it finishes, so the UI shows real progress.
+  await Promise.all(
+    calls.map(async (c, i) => {
+      try {
+        const mapped = (await c.run()).map((r) => c.map(r, c.via)).filter((p): p is Paper => !!p);
+        sources[i] = { label: c.label, ok: true, count: mapped.length };
+        all.push(...mapped);
+      } catch (e) {
+        sources[i] = { label: c.label, ok: false, count: 0, error: String((e as Error)?.message ?? e).slice(0, 200) };
+      }
+      emit({ type: "source", ...sources[i] });
+    }),
+  );
 
   if (sources.every((s) => !s.ok)) {
     throw new Error(sources[0]?.error ?? "TinyFish search failed");
   }
 
+  emit({ type: "stage", text: `Merging ${all.length} results and removing duplicates` });
   // Dedupe by arXiv id / DOI / normalized title, then a second pass on title alone
   // because the same paper often appears once with an id and once without.
   const byKey = new Map<string, Paper>();
@@ -254,6 +265,7 @@ export async function discover(rawQuery: string, opts: { fresh?: boolean } = {})
   }
   const papers = [...byTitle.values()].map((p) => ({ ...p, id: paperIdFor(p) }));
 
+  if (papers.some((p) => p.arxivId)) emit({ type: "stage", text: "Fetching full abstracts for arXiv papers" });
   await enrichFromArxiv(papers);
   const stored = papers.map(upsertPaper);
   saveSearch(queryKey, query, stored.map((p) => p.id), sources, all.length);

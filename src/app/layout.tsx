@@ -13,9 +13,15 @@ export const metadata: Metadata = {
     "Search any research topic. Kenshō finds real papers on the web with TinyFish and redraws them as grounded, cited manga chapters.",
 };
 
+// Runs before first paint: returning readers never see a flash of the opening title card.
+const INTRO_SCRIPT = `try{if(localStorage.getItem("kensho.intro.v1")==="seen"&&!/[?&]intro=1/.test(location.search))document.documentElement.dataset.intro="seen"}catch(e){document.documentElement.dataset.intro="seen"}`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${dela.variable} ${zen.variable} ${shantell.variable} ${plexMono.variable}`}>
+    <html lang="en" className={`${dela.variable} ${zen.variable} ${shantell.variable} ${plexMono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: INTRO_SCRIPT }} />
+      </head>
       <body className="min-h-dvh paper-grain">{children}</body>
     </html>
   );

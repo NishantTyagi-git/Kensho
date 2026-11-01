@@ -57,7 +57,16 @@ function parseError(status: number, err: GeminiError | undefined) {
   const delay = (err?.details ?? []).find((d) => d.retryDelay)?.retryDelay;
   const retryMs = delay ? Math.ceil(parseFloat(delay) * 1000) : 0;
   const dailyQuota = status === 429 && quotaIds.some((q) => /PerDay/i.test(q));
-  return new GeminiHttpError(`Gemini ${status}: ${(err?.message ?? "request failed").split("\n")[0].slice(0, 240)}`, status, dailyQuota, retryMs);
+  // Readers see these messages, so rate limits are explained in plain words.
+  const message =
+    status === 429
+      ? dailyQuota
+        ? "Gemini’s daily free-tier quota for this model is used up."
+        : "Gemini’s free-tier rate limit was reached — wait a minute and retry."
+      : status >= 500
+        ? "Gemini is overloaded right now — retry in a moment."
+        : `Gemini ${status}: ${(err?.message ?? "request failed").split("\n")[0].slice(0, 240)}`;
+  return new GeminiHttpError(message, status, dailyQuota, retryMs);
 }
 
 async function post(model: string, body: unknown): Promise<GeminiResponse> {
@@ -83,15 +92,18 @@ async function post(model: string, body: unknown): Promise<GeminiResponse> {
   }
 }
 
+class MalformedJson extends Error {}
+
 function extractJson(text: string) {
   const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-  try {
-    return JSON.parse(t);
-  } catch {
-    const m = t.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error("The model returned malformed JSON.");
+  const body = t.match(/\{[\s\S]*\}/)?.[0] ?? t;
+  // Tolerate the most common slips (trailing commas) before giving up on a reply.
+  for (const candidate of [t, body, body.replace(/,\s*([}\]])/g, "$1")]) {
+    try {
+      return JSON.parse(candidate);
+    } catch {}
   }
+  throw new MalformedJson("The model returned malformed JSON.");
 }
 
 async function generate<T>(model: string, opts: StructuredOpts): Promise<T> {
@@ -145,7 +157,16 @@ async function generate<T>(model: string, opts: StructuredOpts): Promise<T> {
       .join("");
     if (cand?.finishReason === "MAX_TOKENS") throw new Error("The model ran out of room while writing; try again.");
     if (!text) throw new Error(`Gemini returned no content${cand?.finishReason ? ` (${cand.finishReason})` : ""}.`);
-    return extractJson(text) as T;
+    try {
+      return extractJson(text) as T;
+    } catch (e) {
+      // An unparseable reply is worth one more attempt in the next output mode.
+      if (e instanceof MalformedJson && mode !== "prompt") {
+        lastErr = e;
+        continue;
+      }
+      throw e;
+    }
   }
   throw lastErr ?? new Error("Structured generation failed.");
 }
@@ -176,8 +197,8 @@ export async function structured<T>(opts: StructuredOpts & { onModel?: (model: s
         quotaErr = e;
         continue;
       }
-      // Still overloaded after retries: try the next model rather than failing the chapter.
-      if (e instanceof GeminiHttpError && e.status >= 500 && model !== CHAIN[CHAIN.length - 1]) {
+      // Still overloaded or rate-limited after retries: try the next model rather than failing the chapter.
+      if (e instanceof GeminiHttpError && (e.status >= 500 || e.status === 429) && model !== CHAIN[CHAIN.length - 1]) {
         lastErr = e;
         continue;
       }

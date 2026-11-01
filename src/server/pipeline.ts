@@ -13,7 +13,8 @@ import { MODEL, llmConfigured } from "./llm";
 const g = globalThis as unknown as { __kenshoRunning?: Set<string> };
 const running = (g.__kenshoRunning ??= new Set<string>());
 
-const CHAPTER_CONCURRENCY = 3;
+// Two at a time keeps free-tier keys under their requests-per-minute limit.
+const CHAPTER_CONCURRENCY = 2;
 
 function newJob(paperId: string): Job {
   return { paperId, stage: "queued", message: "Queued", log: [], chaptersDone: 0, chaptersTotal: 0, error: null, updatedAt: new Date().toISOString() };
@@ -58,7 +59,7 @@ async function run(paperId: string, job: Job) {
     if (!acquisition) {
       update({ stage: "acquiring", message: "Retrieving the paper with TinyFish" }, "Looking for the full text");
       acquisition = await acquire(paper, (t) => update({}, t));
-      upsertPaper({ ...paper, availability: acquisition.mode === "full_text" ? "full_text" : "abstract_only" });
+      upsertPaper({ ...paper, availability: acquisition.mode === "full_text" ? "full_text" : "abstract_only", availabilityConfirmed: true });
       saveProcessed(paperId, { acquisition });
     }
 

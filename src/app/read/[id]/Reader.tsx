@@ -10,11 +10,27 @@ import { Character } from "@/components/manga/characters";
 import { Scene } from "@/components/manga/scenes";
 import { Quiz } from "@/components/Quiz";
 import { NotesDrawer, type DrawerTab } from "./NotesDrawer";
+import { Preparing } from "./Preparing";
+import { ChapterCover } from "./ChapterCover";
+import { Contents } from "./Contents";
+import { Sumi } from "@/components/mascot/Sumi";
 
 type Mode = "page" | "scroll";
 const MODE_KEY = "kensho.readmode";
 
-export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: string; initialChapter: number; initialPage: number; initialClaim: string | null }) {
+export function Reader({
+  id,
+  initialChapter,
+  initialPage,
+  initialClaim,
+  autoStart = false,
+}: {
+  id: string;
+  initialChapter: number;
+  initialPage: number;
+  initialClaim: string | null;
+  autoStart?: boolean;
+}) {
   const [state, setState] = useState<ProcessedPaper | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chapterNo, setChapterNo] = useState(initialChapter);
@@ -23,6 +39,11 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
   const [mode, setMode] = useState<Mode>("page");
   const [drawer, setDrawer] = useState<{ open: boolean; tab: DrawerTab; focus: string | null }>({ open: !!initialClaim, tab: "sources", focus: initialClaim });
   const [chrome, setChrome] = useState(true);
+  const [cover, setCover] = useState<number | null>(null);
+  const [contentsOpen, setContentsOpen] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const autoStarted = useRef(false);
+  const hadChapters = useRef<boolean | null>(null);
   const lib = useLibrary();
 
   const load = useCallback(() => {
@@ -46,6 +67,33 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
     } catch {}
   };
 
+  const start = useCallback(
+    async (restart = false) => {
+      setStarting(true);
+      try {
+        await api(`/api/papers/${id}/process`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ restart }) });
+        load();
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setStarting(false);
+      }
+    },
+    [id, load],
+  );
+
+  // Arriving from "Read as manga": begin drawing straight away instead of asking again.
+  // Only for a paper never attempted (or an explicit ?start=1 retry), never in a loop.
+  useEffect(() => {
+    if (!state || autoStarted.current || state.story?.chapters.some(Boolean)) return;
+    const neverRun = !state.job;
+    const retryRequested = autoStart && state.job?.stage === "error";
+    if (neverRun || retryRequested) {
+      autoStarted.current = true;
+      start(false);
+    }
+  }, [state, autoStart, start]);
+
   const drawing = !!state?.job && !["done", "error"].includes(state.job.stage);
   useEffect(() => {
     if (!drawing) return;
@@ -55,6 +103,24 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
 
   const chapters = state?.story?.chapters ?? [];
   const total = state?.analysis?.chapterPlan.length ?? chapters.length;
+
+  // Chapter title card: on opening a chapter from its first page, and when chapter one
+  // finishes inking while the reader watches the preparation screen.
+  const hasChapters = chapters.some(Boolean);
+  useEffect(() => {
+    if (!state) return;
+    if (hadChapters.current === null) {
+      hadChapters.current = hasChapters;
+      if (hasChapters && initialPage === 1 && !initialClaim && chapters[initialChapter - 1]) setCover(initialChapter);
+      return;
+    }
+    if (!hadChapters.current && hasChapters) {
+      hadChapters.current = true;
+      setChapterNo(1);
+      setPageNo(1);
+      setCover(1);
+    }
+  }, [state, hasChapters, chapters, initialChapter, initialPage, initialClaim]);
   const chapter: Chapter | null = chapters[chapterNo - 1] ?? null;
   const pageCount = chapter?.pages.length ?? 0;
   const atEnd = pageNo > pageCount;
@@ -76,6 +142,7 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
         else if (chapterNo < total && chapters[chapterNo]) {
           setChapterNo(chapterNo + 1);
           setPageNo(1);
+          setCover(chapterNo + 1);
         }
       } else {
         if (pageNo > 1) setPageNo(pageNo - 1);
@@ -93,12 +160,16 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
     setDir(n > chapterNo ? "next" : "prev");
     setChapterNo(n);
     setPageNo(1);
+    setContentsOpen(false);
+    if (n !== chapterNo) setCover(n);
     window.scrollTo({ top: 0 });
   };
+  const closeCover = useCallback(() => setCover(null), []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest("input,textarea,select")) return;
+      if (cover !== null || contentsOpen) return;
       if (e.key === "Escape") setDrawer((d) => ({ ...d, open: false }));
       if (mode !== "page") return;
       if (e.key === "ArrowRight" || e.key === "PageDown") go(1);
@@ -106,7 +177,7 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, mode]);
+  }, [go, mode, cover, contentsOpen]);
 
   // Swipe to turn pages on touch screens.
   const touch = useRef<{ x: number; y: number } | null>(null);
@@ -142,15 +213,7 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
   if (!state.analysis || !chapters.some(Boolean))
     return (
       <Shell>
-        <div className="max-w-md mx-auto text-center text-white py-24">
-          <div className="w-32 mx-auto invert">
-            <Character id="hoshi" expression="thinking" pose="think" />
-          </div>
-          <p className="font-display text-2xl mt-6">This manga hasn’t been drawn yet.</p>
-          <Link href={`/paper/${id}`} className="btn-ink mt-6">
-            GO TO PAPER ▸
-          </Link>
-        </div>
+        <Preparing state={state} starting={starting} onStart={start} />
       </Shell>
     );
 
@@ -160,6 +223,13 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
   return (
     <ReaderContext.Provider value={ctx}>
       <div className="min-h-dvh bg-[#121213] text-white">
+        {/* ── volume progress across all chapters ── */}
+        <div className="fixed top-0 inset-x-0 h-[3px] z-50 bg-white/10" aria-hidden>
+          <div
+            className="h-full bg-red transition-[width] duration-500"
+            style={{ width: `${total ? ((chapterNo - 1 + Math.min(pageNo, pageCount + 1) / Math.max(1, pageCount + 1)) / total) * 100 : 0}%` }}
+          />
+        </div>
         {/* ── top bar ── */}
         <header className={`fixed top-0 inset-x-0 z-40 transition-transform duration-300 ${chrome ? "" : "-translate-y-full"}`}>
           <div className="bg-ink/95 backdrop-blur border-b border-white/15">
@@ -171,21 +241,18 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
               </Link>
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-mono text-white/55 truncate">{state.paper.title}</div>
-                <label className="block">
-                  <span className="sr-only">Chapter</span>
-                  <select
-                    value={chapterNo}
-                    onChange={(e) => jumpChapter(Number(e.target.value))}
-                    className="bg-transparent font-display text-sm sm:text-base max-w-full truncate outline-none cursor-pointer [&>option]:text-ink"
-                  >
-                    {state.analysis.chapterPlan.map((pl, i) => (
-                      <option key={pl.number} value={pl.number} disabled={!chapters[i]}>
-                        {chapters[i]?.kicker ?? ""} {chapters[i]?.title ?? pl.title}
-                        {chapters[i] ? "" : " (drawing…)"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <button
+                  onClick={() => setContentsOpen(true)}
+                  className="flex items-center gap-1.5 max-w-full font-display text-sm sm:text-base hover:text-red transition-colors"
+                  aria-haspopup="dialog"
+                  title="Contents"
+                >
+                  <span className="text-red shrink-0">{chapter?.kicker}</span>
+                  <span className="truncate">{chapter?.title ?? "Contents"}</span>
+                  <svg width="10" height="10" viewBox="0 0 10 10" className="shrink-0" aria-hidden>
+                    <path d="M1 3 L5 7 L9 3" stroke="currentColor" strokeWidth="2" fill="none" />
+                  </svg>
+                </button>
               </div>
               <div className="hidden sm:flex border border-white/30" role="group" aria-label="Reading mode">
                 {(["page", "scroll"] as const).map((m) => (
@@ -221,7 +288,7 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
           }}
         >
           {!chapter ? (
-            <ChapterPending n={chapterNo} />
+            <ChapterPending n={chapterNo} failed={state.job?.stage === "error"} error={state.job?.error ?? null} starting={starting} onRetry={() => start(false)} />
           ) : mode === "page" ? (
             <div className="relative max-w-[820px] mx-auto">
               <ChapterTitle chapter={chapter} show={pageNo === 1} />
@@ -271,6 +338,9 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
           </footer>
         )}
 
+        {cover !== null && chapters[cover - 1] && <ChapterCover chapter={chapters[cover - 1]!} total={total} onDone={closeCover} />}
+        {contentsOpen && <Contents state={state} current={chapterNo} onPick={jumpChapter} onClose={() => setContentsOpen(false)} />}
+
         <NotesDrawer
           open={drawer.open}
           tab={drawer.tab}
@@ -287,10 +357,14 @@ export function Reader({ id, initialChapter, initialPage, initialClaim }: { id: 
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-dvh bg-[#121213]">
-      <div className="h-14 border-b border-white/15 flex items-center px-5">
-        <Link href="/" className="font-display text-white">
+    <div className="min-h-dvh bg-[#121213] text-white">
+      <div className="h-14 border-b border-white/15 flex items-center gap-4 px-4 sm:px-5">
+        <Link href="/" className="font-display">
           KENSHŌ<span className="text-red">.</span>
+        </Link>
+        <span className="hidden sm:inline font-mono text-[11px] tracking-[0.14em] text-white/50">01 DISCOVER — 02 PAPER — <span className="bg-white text-ink px-1.5 py-0.5">03 READ</span></span>
+        <Link href="/library" className="ml-auto text-sm font-bold hover:text-red">
+          Library
         </Link>
       </div>
       {children}
@@ -317,7 +391,7 @@ function ChapterTitle({ chapter, show }: { chapter: Chapter; show: boolean }) {
   if (!show) return null;
   return (
     <div className="mb-5 flex items-end gap-4 text-white ink-in">
-      <span className="font-display text-red text-4xl sm:text-5xl leading-none">{chapter.kicker}</span>
+      <span className="font-display text-red text-3xl sm:text-5xl leading-none whitespace-nowrap shrink-0">{chapter.kicker}</span>
       <div className="min-w-0">
         <div className="font-mono text-[11px] text-white/50 tracking-widest">CHAPTER {chapter.number}</div>
         <h1 className="font-display text-2xl sm:text-3xl leading-tight">{chapter.title}</h1>
@@ -326,14 +400,26 @@ function ChapterTitle({ chapter, show }: { chapter: Chapter; show: boolean }) {
   );
 }
 
-function ChapterPending({ n }: { n: number }) {
+function ChapterPending({ n, failed, error, starting, onRetry }: { n: number; failed: boolean; error: string | null; starting: boolean; onRetry: () => void }) {
   return (
-    <div className="max-w-md mx-auto text-center py-24">
-      <div className="w-28 mx-auto invert swim">
-        <Character id="sumi" expression="excited" />
+    <div className="max-w-md mx-auto flex flex-col items-center text-center py-24">
+      <div className="grid place-items-center w-[150px] h-[150px] rounded-full bg-paper">
+        <Sumi mode={failed ? "dizzy" : "inking"} size={124} />
       </div>
-      <p className="font-display text-2xl mt-6">Chapter {n} is still being inked…</p>
-      <p className="text-white/60 mt-2 text-sm">It will appear here automatically.</p>
+      {failed ? (
+        <>
+          <p className="font-display text-2xl mt-6">Chapter {n} couldn’t be drawn yet.</p>
+          {error && <p className="text-white/60 mt-2 text-sm">{error.slice(0, 180)}</p>}
+          <button onClick={onRetry} disabled={starting} className="btn-ink mt-6">
+            {starting ? "RETRYING…" : "RETRY MISSING CHAPTERS ▸"}
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="font-display text-2xl mt-6">Chapter {n} is still being inked…</p>
+          <p className="text-white/60 mt-2 text-sm">It will appear here automatically when it’s ready.</p>
+        </>
+      )}
     </div>
   );
 }

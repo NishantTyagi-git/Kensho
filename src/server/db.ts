@@ -61,7 +61,9 @@ export function upsertPaper(p: Paper) {
         abstractIsSnippet: existing.abstractIsSnippet && p.abstractIsSnippet,
         discoveredVia: [...new Set([...existing.discoveredVia, ...p.discoveredVia])],
         discoveredAt: existing.discoveredAt,
-        availability: existing.availability !== "unknown" && p.availability === "unknown" ? existing.availability : p.availability,
+        // A confirmed status (from actually reading the paper) always beats a discovery-time guess.
+        availability: existing.availabilityConfirmed && !p.availabilityConfirmed ? existing.availability : existing.availability !== "unknown" && p.availability === "unknown" ? existing.availability : p.availability,
+        availabilityConfirmed: existing.availabilityConfirmed || p.availabilityConfirmed,
       }
     : p;
   db.prepare(

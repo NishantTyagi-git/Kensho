@@ -54,11 +54,29 @@ export function PaperCover({ paper, className = "", size = "md" }: { paper: Pape
   );
 }
 
-export function AvailabilityBadge({ paper, confirmed = false }: { paper: Paper; confirmed?: boolean }) {
-  const map = {
-    full_text: { label: confirmed ? "Full text read" : "Open full text", cls: "bg-ink text-white" },
-    abstract_only: { label: "Abstract only", cls: "bg-white text-ink border-dashed" },
-    unknown: { label: "Access unknown", cls: "bg-paper text-ink-3" },
-  }[paper.availability];
-  return <span className={`inline-flex items-center border-2 border-ink px-1.5 py-0.5 text-[10px] font-black tracking-wider uppercase ${map.cls}`}>{map.label}</span>;
+/** Says only what is known: a confirmed status after reading, or an honest guess at discovery. */
+export function accessInfo(paper: Paper): { label: string; hint: string; cls: string; icon: string } {
+  if (paper.availabilityConfirmed) {
+    return paper.availability === "full_text"
+      ? { label: "Full text read", icon: "■", hint: "Kenshō read the complete paper. Chapters cover the whole study.", cls: "bg-ink text-white" }
+      : { label: "Abstract only", icon: "□", hint: "The full text isn’t openly accessible, so the manga covers only what the abstract says.", cls: "bg-white text-ink border-dashed" };
+  }
+  switch (paper.availability) {
+    case "full_text":
+      return { label: "PDF link found", icon: "◆", hint: "An open PDF or repository copy was found. Kenshō confirms full-text access when it reads the paper.", cls: "bg-white text-ink" };
+    case "abstract_only":
+      return { label: "Likely abstract only", icon: "◇", hint: "Published behind a subscription with no open copy found. Expect an abstract-only manga.", cls: "bg-paper text-ink-3 border-dashed" };
+    default:
+      return { label: "Access unchecked", icon: "?", hint: "Access will be checked when Kenshō opens the paper.", cls: "bg-paper text-ink-3" };
+  }
+}
+
+export function AvailabilityBadge({ paper }: { paper: Paper; confirmed?: boolean }) {
+  const a = accessInfo(paper);
+  return (
+    <span title={a.hint} className={`inline-flex items-center gap-1 border-2 border-ink px-1.5 py-0.5 text-[10px] font-black tracking-wider uppercase ${a.cls}`}>
+      <span aria-hidden>{a.icon}</span>
+      {a.label}
+    </span>
+  );
 }

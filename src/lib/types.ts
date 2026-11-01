@@ -23,6 +23,8 @@ export interface Paper {
   doi: string | null;
   /** Best guess at discovery time; confirmed once the paper is processed. */
   availability: Availability;
+  /** True once Kenshō has actually tried to read the paper, so `availability` is known, not guessed. */
+  availabilityConfirmed?: boolean;
   /** Which TinyFish queries surfaced this paper, e.g. "tinyfish·research_paper". */
   discoveredVia: string[];
   discoveredAt: string;

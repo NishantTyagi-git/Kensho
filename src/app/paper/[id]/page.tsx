@@ -5,7 +5,7 @@ export default async function PaperPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   return (
     <>
-      <SiteHeader />
+      <SiteHeader step="paper" />
       <PaperView id={id} />
       <Footer />
     </>

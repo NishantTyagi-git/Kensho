@@ -7,7 +7,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const { q = "" } = await searchParams;
   return (
     <>
-      <SiteHeader />
+      <SiteHeader step="discover" />
       <SearchView key={q} q={q} />
     </>
   );
