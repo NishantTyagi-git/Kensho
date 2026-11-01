@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Kenshō 見性 — research, read like manga
 
-## Getting Started
+Search a topic → Kenshō finds real papers on the web with **TinyFish** → pick one → it reads the paper and redraws it as grounded, cited manga chapters.
 
-First, run the development server:
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env    # add TINYFISH_API_KEY and GEMINI_API_KEY
+npm install
+npm run dev             # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Node 22.5+ is required (uses the built-in `node:sqlite`). Data lives in `./data/kensho.db`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How it works
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/server/          research pipeline (server-only, no React)
+  tinyfish.ts        REST client: Search, Fetch, Agent (/v1/automation/run-sse)
+  discovery.ts       topic → papers: 3 parallel TinyFish searches, normalise, dedupe, arXiv metadata enrichment
+  acquire.ts         paper → text: TinyFish Fetch over all candidates; TinyFish Agent fallback finds an
+                     *open* full-text link (never logs in / bypasses paywalls); sectioning; abstract-only mode
+  analyze.ts         Gemini extracts problem, method, results, limits, glossary, quiz, chapter plan;
+                     every claim carries a verbatim quote that is checked against the fetched text
+  storyboard.ts      Gemini writes each chapter as semantic panels; output is validated
+                     (unknown refs dropped, chart numbers must appear in a verified quote)
+  llm.ts             Gemini generateContent with JSON-schema output (fallbacks if a schema is rejected)
+  pipeline.ts        background job: stage-by-stage persistence, parallel chapters, resume on failure
+src/components/manga/  renderer (independent of the pipeline)
+  characters.tsx     reusable SVG cast — Prof. Hoshi, Kai, Sumi — 9 expressions × 6 poses
+  scenes.tsx         14 backgrounds/effects (classroom, lab, speed lines, focus burst, …)
+  layout.ts          page templates with slanted gutters, chosen per page from panel weight + content
+  lettering.tsx      speech / thought / shout / whisper bubbles, analogy tags, citation chips, glossary terms
+  diagrams.tsx       interactive flow, layers, compare, steps, bars, cycle, network, equation, sequence
+src/app/             landing, /search, /paper/[id], /read/[id], /library, API routes
+```
 
-## Learn More
+**Grounding rules.** Research statements cite claim IDs; each claim shows its verbatim excerpt and a
+verified/unverified stamp. Analogies are visibly marked. Full text never leaves the server — the client
+only receives section headings and short quotes, and every page links to the original source.
 
-To learn more about Next.js, take a look at the following resources:
+**TinyFish usage.** Search and Fetch are free; the Agent fallback is metered and only runs when Fetch
+can't reach open full text. Set `TINYFISH_AGENT_FALLBACK=off` to disable it.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Reader state (bookmarks, progress, saved concepts, quiz scores) is stored per browser in `localStorage`.
