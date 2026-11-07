@@ -7,12 +7,21 @@ import { DatabaseSync } from "node:sqlite";
 
 const URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-if (!URL || !TOKEN) {
-  console.error("Set KV_REST_API_URL and KV_REST_API_TOKEN (from your Upstash database) first.");
+const TCP_URL = URL && TOKEN ? null : process.env.REDIS_URL || process.env.KV_URL;
+if (!(URL && TOKEN) && !TCP_URL) {
+  console.error("Set REDIS_URL, or KV_REST_API_URL and KV_REST_API_TOKEN, from your Vercel project's environment variables first.");
   process.exit(1);
 }
 
 async function pipeline(cmds) {
+  if (TCP_URL) {
+    const { createClient } = await import("redis");
+    const client = createClient({ url: TCP_URL });
+    await client.connect();
+    for (const c of cmds) await client.sendCommand(c.map(String));
+    await client.quit();
+    return;
+  }
   for (let i = 0; i < cmds.length; i += 50) {
     const res = await fetch(`${URL}/pipeline`, {
       method: "POST",

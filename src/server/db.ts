@@ -2,6 +2,7 @@ import "server-only";
 import { DatabaseSync } from "node:sqlite";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { createClient, type RedisClientType } from "redis";
 import type { Acquisition, Analysis, Job, Paper, Story } from "@/lib/types";
 
 // Storage for papers, searches, processed manga and jobs. Two backends behind one async API:
@@ -17,7 +18,7 @@ type SearchRecord = { query: string; paperIds: string[]; sources: unknown; dedup
 const now = () => new Date().toISOString();
 const EMPTY_PROCESSED: ProcessedRecord = { acquisition: null, analysis: null, story: null, model: null };
 
-/* ───────────── Upstash Redis (REST) ───────────── */
+/* ───────────── Redis (Upstash REST or a redis:// URL) ───────────── */
 
 // Vercel's Upstash integration may add a custom prefix (e.g. STORAGE_KV_REST_API_URL), so match by suffix.
 // The read-only token is skipped: the app needs to write.
@@ -31,9 +32,26 @@ const envBySuffix = (...suffixes: string[]) => {
 };
 const REDIS_URL = envBySuffix("KV_REST_API_URL", "UPSTASH_REDIS_REST_URL");
 const REDIS_TOKEN = envBySuffix("KV_REST_API_TOKEN", "UPSTASH_REDIS_REST_TOKEN");
-export const storageBackend = REDIS_URL && REDIS_TOKEN ? "redis" : "sqlite";
+// A plain connection string (redis:// or rediss://), as Vercel's Redis integration provides.
+const REDIS_TCP_URL = REDIS_URL && REDIS_TOKEN ? undefined : envBySuffix("REDIS_URL", "KV_URL");
+export const storageBackend = (REDIS_URL && REDIS_TOKEN) || REDIS_TCP_URL ? "redis" : "sqlite";
+
+// One connection per server instance, reused across requests.
+const globalForRedis = globalThis as unknown as { __kenshoRedis?: Promise<RedisClientType> };
+function tcpClient() {
+  return (globalForRedis.__kenshoRedis ??= (async () => {
+    const client = createClient({ url: REDIS_TCP_URL }) as RedisClientType;
+    client.on("error", () => {}); // reconnects on its own; failed commands still throw
+    await client.connect();
+    return client;
+  })().catch((e) => {
+    globalForRedis.__kenshoRedis = undefined;
+    throw new Error(`Storage error: ${(e as Error).message}`);
+  }));
+}
 
 async function redis<T = unknown>(...cmd: (string | number)[]): Promise<T> {
+  if (REDIS_TCP_URL) return (await (await tcpClient()).sendCommand(cmd.map(String))) as T;
   const res = await fetch(REDIS_URL!, {
     method: "POST",
     headers: { Authorization: `Bearer ${REDIS_TOKEN}` },

@@ -16,9 +16,11 @@ Node 22.5+ is required (uses the built-in `node:sqlite`). Data lives in `./data/
 
 Vercel's filesystem is read-only and each server instance is separate, so storage works like this:
 
-- **With Upstash Redis (recommended):** add an Upstash Redis database to the project (Vercel → Storage → Upstash).
-  It sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`, and Kensho uses Redis for everything. To bring your
-  local papers and drawn manga across once: `KV_REST_API_URL=… KV_REST_API_TOKEN=… node scripts/seed-redis.mjs`.
+- **With Redis (recommended):** add a Redis database to the project (Vercel → Storage → Upstash or Redis).
+  Kensho uses it for everything when it finds either `REDIS_URL` (a `redis://`/`rediss://` connection string)
+  or Upstash's `KV_REST_API_URL` + `KV_REST_API_TOKEN` (prefixed names work too). To bring your local papers
+  and drawn manga across once: `REDIS_URL=… node scripts/seed-redis.mjs` (or with the two `KV_REST_API_*` vars).
+  `/api/home` reports which storage is active.
 - **Without Redis:** Kensho runs from a `/tmp` copy of the bundled `data/kensho.db`. It works, but each server
   instance keeps its own copy, so new searches and drawings can be lost between instances.
 
