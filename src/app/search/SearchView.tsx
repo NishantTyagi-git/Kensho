@@ -309,8 +309,8 @@ function BestMatch({ paper, saved, label }: { paper: Paper; saved: boolean; labe
   return (
     <Reveal variant="panel" className="mt-8">
       <article className="ink-frame ink-shadow grid sm:grid-cols-[200px_1fr] gap-0 overflow-hidden">
-        <Link href={`/paper/${paper.id}`} className="block border-b-[3px] sm:border-b-0 sm:border-r-[3px] border-ink" tabIndex={-1} aria-hidden>
-          <PaperCover paper={paper} className="!border-0 h-full" />
+        <Link href={`/paper/${paper.id}`} className="block overflow-hidden border-b-[3px] sm:border-b-0 sm:border-r-[3px] border-ink" tabIndex={-1} aria-hidden>
+          <PaperCover paper={paper} className="!border-0 w-full" />
         </Link>
         <div className="p-5 sm:p-7 flex flex-col">
           <div className="flex items-center gap-2 flex-wrap">

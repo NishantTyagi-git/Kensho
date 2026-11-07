@@ -12,6 +12,18 @@ npm run dev             # http://localhost:3000
 
 Node 22.5+ is required (uses the built-in `node:sqlite`). Data lives in `./data/kensho.db`.
 
+### Deploying on Vercel
+
+Vercel's filesystem is read-only and each server instance is separate, so storage works like this:
+
+- **With Upstash Redis (recommended):** add an Upstash Redis database to the project (Vercel → Storage → Upstash).
+  It sets `KV_REST_API_URL` and `KV_REST_API_TOKEN`, and Kensho uses Redis for everything. To bring your
+  local papers and drawn manga across once: `KV_REST_API_URL=… KV_REST_API_TOKEN=… node scripts/seed-redis.mjs`.
+- **Without Redis:** Kensho runs from a `/tmp` copy of the bundled `data/kensho.db`. It works, but each server
+  instance keeps its own copy, so new searches and drawings can be lost between instances.
+
+Drawing runs in the background with Next's `after()`; the process route allows up to 300 s.
+
 ## How it works
 
 ```
