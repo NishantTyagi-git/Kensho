@@ -110,6 +110,41 @@ function openSqlite(): DatabaseSync {
 
 const sql = () => (globalForDb.__kenshoDb ??= openSqlite());
 
+/**
+ * One-time copy of the bundled SQLite data into Redis (same as scripts/seed-redis.mjs, but run by the
+ * server with its own connection). Guarded by a Redis flag so it can only ever run once.
+ */
+export async function importBundledDataIntoRedis(): Promise<{ imported: boolean; papers: number; searches: number; drawn: number }> {
+  if (storageBackend !== "redis") throw new Error("Redis is not configured.");
+  // Re-running is harmless (same keys, same values), so the flag is set only after a complete copy.
+  if (await redis<string | null>("GET", "kensho:imported")) return { imported: false, papers: 0, searches: 0, drawn: 0 };
+  const db = sql();
+  const papers = db.prepare("SELECT id, data FROM papers").all() as { id: string; data: string }[];
+  for (const r of papers) await redis("SET", `paper:${r.id}`, r.data);
+  const searches = db.prepare("SELECT * FROM searches").all() as Record<string, string | number>[];
+  for (const r of searches) {
+    const rec = { query: r.query, paperIds: JSON.parse(String(r.paper_ids)), sources: JSON.parse(String(r.sources)), dedupedFrom: r.deduped_from, createdAt: r.created_at };
+    await redis("SET", `search:${r.query_key}`, JSON.stringify(rec));
+    await redis("ZADD", "searches", Date.parse(String(r.created_at)), String(r.query_key));
+  }
+  let drawn = 0;
+  for (const r of db.prepare("SELECT * FROM processed").all() as Record<string, string | null>[]) {
+    const rec = {
+      acquisition: r.acquisition ? JSON.parse(r.acquisition) : null,
+      analysis: r.analysis ? JSON.parse(r.analysis) : null,
+      story: r.story ? JSON.parse(r.story) : null,
+      model: r.model ?? null,
+    };
+    await redis("SET", `processed:${r.paper_id}`, JSON.stringify(rec));
+    if (rec.story?.chapters.some(Boolean)) {
+      await redis("ZADD", "drawn", Date.parse(String(r.updated_at)), String(r.paper_id));
+      drawn++;
+    }
+  }
+  await redis("SET", "kensho:imported", now());
+  return { imported: true, papers: papers.length, searches: searches.length, drawn };
+}
+
 /* ───────────── papers ───────────── */
 
 function mergePaper(existing: Paper | null, p: Paper): Paper {
